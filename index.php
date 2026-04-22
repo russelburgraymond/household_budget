@@ -5,6 +5,8 @@ $conn = db();
 $error = '';
 $prefillPaycheckDate = isset($_GET['paycheck_date']) ? (string)$_GET['paycheck_date'] : date('Y-m-d');
 $prefillPaycheckAmount = isset($_GET['paycheck_amount']) ? (float)$_GET['paycheck_amount'] : 0;
+$existingPaycheck = get_paycheck_by_date($prefillPaycheckDate);
+$existingPayItems = $existingPaycheck ? get_paycheck_payments((int)$existingPaycheck['id']) : array();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_paycheck') {
     $paycheckDate = isset($_POST['paycheck_date']) ? $_POST['paycheck_date'] : '';
@@ -23,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmt = $conn->prepare("UPDATE paychecks SET paycheck_amount = ? WHERE id = ?");
             $stmt->bind_param('di', $paycheckAmount, $paycheckId);
             $stmt->execute();
-            $sortOrder = next_paycheck_sort_order($paycheckId);
+            $sortOrder = 1;
         } else {
             $stmt = $conn->prepare("INSERT INTO paychecks (paycheck_date, paycheck_amount) VALUES (?, ?)");
             $stmt->bind_param('sd', $paycheckDate, $paycheckAmount);
@@ -32,7 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $sortOrder = 1;
         }
 
+        $keptExistingPaymentIds = array();
+
         foreach ($items as $item) {
+            $existingPaymentId = !empty($item['existing_payment_id']) ? (int)$item['existing_payment_id'] : 0;
             $recurringBillId = !empty($item['recurring_bill_id']) ? (int)$item['recurring_bill_id'] : null;
             $dueDate = !empty($item['due_date']) ? $item['due_date'] : $paycheckDate;
             $billName = trim(isset($item['bill_name']) ? (string)$item['bill_name'] : '');
@@ -43,18 +48,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 continue;
             }
 
-            $stmt = $conn->prepare("INSERT INTO paycheck_payments (paycheck_id, recurring_bill_id, due_date, bill_name, amount, notes, sort_order, is_manual)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param('iissdsii', $paycheckId, $recurringBillId, $dueDate, $billName, $amount, $notes, $sortOrder, $isManual);
-            $stmt->execute();
-            $paymentId = (int)$conn->insert_id;
+            if ($existingPaymentId > 0) {
+                $stmt = $conn->prepare("UPDATE paycheck_payments SET recurring_bill_id = ?, due_date = ?, bill_name = ?, amount = ?, notes = ?, sort_order = ?, is_manual = ? WHERE id = ? AND paycheck_id = ?");
+                $stmt->bind_param('issdsiiii', $recurringBillId, $dueDate, $billName, $amount, $notes, $sortOrder, $isManual, $existingPaymentId, $paycheckId);
+                $stmt->execute();
 
-            if ($recurringBillId) {
-                $stmt2 = $conn->prepare("INSERT INTO bill_paid_instances (recurring_bill_id, due_date, paycheck_payment_id) VALUES (?, ?, ?)");
-                $stmt2->bind_param('isi', $recurringBillId, $dueDate, $paymentId);
-                $stmt2->execute();
+                if ($recurringBillId) {
+                    $stmt2 = $conn->prepare("UPDATE bill_paid_instances SET recurring_bill_id = ?, due_date = ? WHERE paycheck_payment_id = ?");
+                    $stmt2->bind_param('isi', $recurringBillId, $dueDate, $existingPaymentId);
+                    $stmt2->execute();
+                }
+
+                $keptExistingPaymentIds[] = $existingPaymentId;
+            } else {
+                $stmt = $conn->prepare("INSERT INTO paycheck_payments (paycheck_id, recurring_bill_id, due_date, bill_name, amount, notes, sort_order, is_manual)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param('iissdsii', $paycheckId, $recurringBillId, $dueDate, $billName, $amount, $notes, $sortOrder, $isManual);
+                $stmt->execute();
+                $paymentId = (int)$conn->insert_id;
+
+                if ($recurringBillId) {
+                    $stmt2 = $conn->prepare("INSERT INTO bill_paid_instances (recurring_bill_id, due_date, paycheck_payment_id) VALUES (?, ?, ?)");
+                    $stmt2->bind_param('isi', $recurringBillId, $dueDate, $paymentId);
+                    $stmt2->execute();
+                }
             }
+
             $sortOrder++;
+        }
+
+        if ($existingPaycheck) {
+            $existingRows = get_paycheck_payments($paycheckId);
+            foreach ($existingRows as $existingRow) {
+                $existingId = (int)$existingRow['id'];
+                if (!in_array($existingId, $keptExistingPaymentIds, true)) {
+                    $stmt = $conn->prepare("DELETE FROM paycheck_payments WHERE id = ? AND paycheck_id = ?");
+                    $stmt->bind_param('ii', $existingId, $paycheckId);
+                    $stmt->execute();
+                }
+            }
         }
 
         $conn->commit();
@@ -67,6 +99,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 $upcoming = upcoming_bills();
 require __DIR__ . '/header.php';
+?>
+<?php
+$existingPayItemsForJs = array();
+foreach ($existingPayItems as $existingItem) {
+    $existingPayItemsForJs[] = array(
+        'existing_payment_id' => (int)$existingItem['id'],
+        'recurring_bill_id' => !empty($existingItem['recurring_bill_id']) ? (int)$existingItem['recurring_bill_id'] : null,
+        'due_date' => $existingItem['due_date'],
+        'bill_name' => $existingItem['bill_name'],
+        'amount' => (float)$existingItem['amount'],
+        'notes' => $existingItem['notes'],
+        'recurrence_type' => '',
+        'do_not_repeat' => 0,
+        'is_manual' => !empty($existingItem['is_manual']) ? 1 : 0,
+    );
+}
 ?>
 <h1>Home</h1>
 <?php if (!empty($error)): ?>
@@ -161,7 +209,7 @@ require __DIR__ . '/header.php';
 
 <script>
 (function(){
-    var payItems = [];
+    var payItems = <?= json_encode($existingPayItemsForJs, JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_TAG | JSON_HEX_QUOT) ?> || [];
     var dropzone = document.getElementById('pay-dropzone');
     var hidden = document.getElementById('pay_items_json');
     var totalEl = document.getElementById('selected-total');

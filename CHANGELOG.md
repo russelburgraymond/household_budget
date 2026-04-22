@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+### Fixes
+- Fixed issue where "Add More Bills To This Paycheck" did not preload existing paid bills into the Bills to Pay tile
+- Prevented duplicate entries when saving updates to an existing paycheck
+
+### Improvements
+- Editing an existing paycheck now correctly reflects previously paid bills in the Home screen
+- Improved paycheck editing workflow consistency
+
+
 ## 1.2.0
 
 ### Features
