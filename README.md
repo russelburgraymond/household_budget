@@ -11,7 +11,7 @@
 <p align="center">
   <img alt="PHP" src="https://img.shields.io/badge/PHP-7.4%2B-777BB4?logo=php&logoColor=white">
   <img alt="MySQL" src="https://img.shields.io/badge/MySQL%20%2F%20MariaDB-supported-00758F?logo=mysql&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-blue">
+![GitHub release](https://img.shields.io/github/v/release/russelburgraymond/household_budget)
   <img alt="Status" src="https://img.shields.io/badge/status-active-success">
 </p>
 
