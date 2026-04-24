@@ -72,6 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $stmt2->bind_param('isi', $recurringBillId, $dueDate, $paymentId);
                     $stmt2->execute();
                 }
+
+                // Keep newly inserted rows when updating an existing paycheck.
+                // Without this, the cleanup pass below sees the new rows as
+                // missing from the kept list and deletes them immediately.
+                $keptExistingPaymentIds[] = $paymentId;
             }
 
             $sortOrder++;

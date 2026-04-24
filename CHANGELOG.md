@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.2
+
+### Fixes
+- Fixed issue where adding bills to an existing paycheck did not save new bills
+- Resolved cleanup logic removing newly added bill entries during paycheck update
+
+### Improvements
+- Editing a paycheck from Search now correctly persists newly added bills
+- Improved stability of paycheck update workflow
+
 ## 1.2.1
 
 ### Fixes
